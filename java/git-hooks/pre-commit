@@ -1,0 +1,42 @@
+#!/usr/bin/env sh
+
+get_latest_release() {
+  curl --silent "https://api.github.com/repos/$1/releases/latest" | # Get latest release from GitHub api
+    grep '"tag_name":' |                                            # Get tag line
+    sed -E 's/.*"([^"]+)".*/\1/'                                    # Pluck JSON value
+}
+
+
+cache_folder=".git/.cache"
+repo=google/google-java-format
+
+mkdir -p .git/.cache
+
+if [ ! -f "$cache_folder/version-stale-file.txt" ] || [ $(find "$cache_folder/version-stale-file.txt" -mtime +7 -print) ]
+then
+    version=$(get_latest_release $repo)
+    if [ -z "$version" ]
+    then
+      version=$(cat "$cache_folder/version-stale-file.txt") # try the oldest version
+    else 
+      echo $version > "$cache_folder/version-stale-file.txt"
+    fi
+else 
+    version=$(cat "$cache_folder/version-stale-file.txt")
+fi
+
+jar_name="google-java-format-$( echo $version | cut -c2-)-all-deps.jar"
+
+echo "latest version is $version"
+
+if [ ! -f "$cache_folder/$jar_name" ]
+then
+    curl -o "$cache_folder/$jar_name" -LJ "https://github.com/google/google-java-format/releases/download/${version}/${jar_name}"
+    chmod 755 "$cache_folder/$jar_name"
+fi
+
+changed_java_files=$(git diff --cached --name-only --diff-filter=ACMR | grep ".*java$" )
+echo $changed_java_files
+java -jar "$cache_folder/$jar_name" --replace $changed_java_files
+# re add modified java files
+git add $changed_java_files
